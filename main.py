@@ -13,9 +13,7 @@ import os, asyncio, requests, json
 import logging
 import re
 import numpy as np
-from dotenv import load_dotenv
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as analyzer
-
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer as sia
 
 bot = commands.Bot(command_prefix=['!'], help_command=None)
 dict = {}
@@ -28,13 +26,16 @@ context = ''
 answer_question = pipeline("question-answering",model="bert-large-uncased-whole-word-masking-finetuned-squad")
 
 
-
-# bot command for chat sentiment analysis
 MSG_LIMIT = 100
+
+
+# bot command for sentiment analysis
 @bot.command(name = 'chat_sentiment_analysis', pass_context=True)
 async def chat_sentiment_analysis(ctx, *arg):
 
     amt = MSG_LIMIT
+
+    # Error checking
 
     has_mention = False
     has_integer = False
@@ -44,21 +45,19 @@ async def chat_sentiment_analysis(ctx, *arg):
     mentions = ctx.message.mentions
     channel_mentions = ctx.message.channel_mentions
 
-    sentence = []
-    count_sen = 0
-
     if mentions:
         if len(mentions) > 1:
-            await ctx.send("Incorrect number of mentions.")
+            await ctx.send("Incorrect number of mentionsm")
             return
+        print("Has a mention")
         has_mention = True
 
     if channel_mentions:
         if len(channel_mentions) > 1:
-            await ctx.send("Incorrect number of channel mentions.")
+            await ctx.send("Incorrect number of channel mentions")
             return
+        print("Has a channel mention")
         has_channel = True
-
 
     for a in arg:
         try:
@@ -69,12 +68,13 @@ async def chat_sentiment_analysis(ctx, *arg):
             has_integer = True
         except ValueError:
             pass
-
     if many_ints:
-        await ctx.send("Incorrect number of integers: 1 maximum")
+        print("Has too many integers")
+        await ctx.send("Incorrect number of integers.")
         return
     elif has_integer:
         print("Has an integer")
+
 
     current_channel_id = ctx.message.channel.id
 
@@ -85,11 +85,14 @@ async def chat_sentiment_analysis(ctx, *arg):
 
     messages = await channel.history().flatten()
 
+    sentence = []
+    count_sen = 0
+    #utilize regex commands to reove the non-pure language components of messages to analyze their langauge sentiment
     for msg in messages:
-        str_url_removed = re.sub('http[s]?://\S+', '', msg.content, flags=re.MULTILINE) # Remove urls
-        str_mention_removed = re.sub('<@![0-9]+>', '', str_url_removed, flags=re.MULTILINE) # Remove mentions
-        str_channel_removed = re.sub('<#[0-9]+>', '', str_mention_removed, flags=re.MULTILINE) # Remove channel
-        if msg.author.id != bot.user.id and not '!' in str_channel_removed and str_channel_removed != '':
+        str_url_removed = re.sub('http[s]?://\S+', '', msg.content, flags=re.MULTILINE)
+        str_mention_removed = re.sub('<@![0-9]+>', '', str_url_removed, flags=re.MULTILINE)
+        str_channel_removed = re.sub('<#[0-9]+>', '', str_mention_removed, flags=re.MULTILINE)
+        if msg.author.id != bot.user.id and not '!chat_sentiment_analysis' in str_channel_removed and str_channel_removed != '':
             sentence.append(str_channel_removed)
             count_sen += 1
         if has_mention and mentions[0].id == msg.author.id:
@@ -98,32 +101,37 @@ async def chat_sentiment_analysis(ctx, *arg):
         if count_sen == amt:
             break
 
-    analyzer = analyzer()
-    list = []
+    # Analysis starts here
+    classifier = sia()
+    analysis_results_lst = []
+
     for sen in sentence:
-        sentence_dict = analyzer.polarity_scores(sen)
-        list.append(sentence_dict['compound'])
+        analysis_dict = classifier.polarity_scores(sen)
+        analysis_results_lst.append(analysis_dict['compound'])
 
-    list_arr = np.array(list)
-    mean = float(np.mean(list_arr))
-    for spot,value in enumerate(list_arr):
-        if list_arr[spot] < -0.1:
-            list_arr[spot] = -1
-        elif list_arr[spot] > 0.1:
-            list_arr[spot] = 1
+    list_a = np.array(analysis_results_lst)
+    reg_mean = mean = float(np.mean(list_a))
+    for s,v in enumerate(list_a):
+        if list_a[s] < -0.1:
+            list_a[s] = -1
+        elif list_a[s] > 0.1:
+            list_a[s] = 1
         else:
-            list_arr[spot] = 0
-    list_arr[spot] = value*((amt-spot)/amt)
-    mean = float(np.mean(list_arr))
+            list_a[s] = 0
+    list_a[s] = v*((amt-s)/amt)
+    mean = float(np.mean(list_a))
 
+    reg_pct = (reg_mean + 1) / 2 * 100
+    pct = (mean + 1) / 2 * 100
 
-    percentage = (mean + 1) / 2 * 100
+    print(reg_pct)
+    print(pct)
 
-    summary_string = "The chosen " + str(amt) + " messages in " + channel.mention
+    content_str = "The chosen " + str(amt) + " messages in " + channel.mention
     if has_mention:
-        summary_string += " from " + mentions[0].mention
-    summary_string += " had " + str(round(percentage , 3)) + "% positivity in the overall language."
-    await ctx.send(summary_string)
+        content_str += " said by user " + mentions[0].mention
+    content_str += " had " + str(round(pct,3)) + "% of acceptable classroom language."
+    await ctx.send(content_str)
 
 # bot command for uploading PDF file
 @bot.command()
@@ -145,10 +153,10 @@ async def uploadPDF(ctx):
 
 
 def get_quotes():
-    response = requests.get('https://zenquotes.io/api/random')
-    json_data = json.loads(response.text)
-    quote = json_data[0]['q'] + ' - ' + json_data[0]['a']
-    return quote
+    response_API = requests.get('https://zenquotes.io/api/random')
+    json_data_array = json.loads(response_API.text)
+    quote_result = json_data_array[0]['q'] + ' - ' + json_data_array[0]['a']
+    return quote_result
 
 def printAssignments(tdl):
     assignment=""
